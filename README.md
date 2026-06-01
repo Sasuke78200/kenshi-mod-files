@@ -6,6 +6,13 @@ The initial objective is translation support: extract translatable data from `.m
 
 Planned features include JSON export/import, structured parsing, translation extraction, and public documentation of the binary format.
 
+## Screenshots
+
+Still WIP, but here screenshot of the Terminal UI to view the .mod files contents
+
+![Screenshot](img/full_ui_references.png)
+![Screenshot](img/full_ui_fields.png)
+
 ## License / Disclaimer
 
 This documentation is the result of reverse engineering and may contain mistakes.
