@@ -3,7 +3,9 @@ from enum import IntEnum
 
 from binary_reader import BinaryReader
 
-
+class ItemLoadFlags(IntEnum):
+    MODIFIED = 1
+    RENAMED = 2
 
 class ItemType(IntEnum):
     BUILDING = 0
@@ -152,7 +154,7 @@ class ModItemFields:
     quaternions : dict[str, Quaternion]
     strings     : dict[str, str]
     filenames   : dict[str, str]
-    triples     : dict[str, dict[str, TripleInt]]
+    references     : dict[str, dict[str, TripleInt]]
 
 @dataclass(slots=True)
 class ModObject:
@@ -165,15 +167,31 @@ class ModObject:
 
 @dataclass(slots=True)
 class ModItem:
-    unknown_0000    : int
+    unknown_0000    : int           # forgotten construction set, will always save this value as 0 and dismiss its value at read
     item_type       : ItemType
     item_id         : int
     name            : str
     identifier      : str
-    flags           : int
+    flags           : int           # packed save counter & flags
     legacy_flags    : dict
     fields          : ModItemFields
     objects         : list[ModObject]
+
+    def unpack_flags(self) -> tuple[int, list[ItemLoadFlags]]:
+        # bits 4-31 = save_counter
+        # buts 0-3 = item load flags
+        save_counter    = self.flags >> 4
+        item_load_flags = self.flags & 15
+        # make the bit 1 the same value as bit 1, bit 1 depends on bit 0
+        item_load_flags = ((item_load_flags | 2) if (item_load_flags & 1) else (item_load_flags & ~2)) & 15
+        # item load flags values (missing 4 and 8)
+        load_flags = []
+        for v in ItemLoadFlags:
+            if item_load_flags & v.real:
+                load_flags.append(v)
+
+        return save_counter, load_flags
+
 
 class ModItemParser:
     def __init__(self, reader: BinaryReader, file_version: int, filename: str) -> None:
@@ -232,13 +250,13 @@ class ModItemParser:
 
         strings     = self._read_keyed_fields(self.reader.string)
         filenames   = self._read_keyed_fields(self.reader.string)
-        triples     = self._read_triples()
+        references  = self._read_references()
 
         return ModItemFields(
             bools, floats, ints,
             vectors, quaternions,
             strings, filenames,
-            triples
+            references
         )
 
     def _read_keyed_fields(self, reader: callable) -> dict:
@@ -248,7 +266,7 @@ class ModItemParser:
             fields[key] = reader()
         return fields
 
-    def _read_triples(self) -> dict[str, dict[str, TripleInt]]:
+    def _read_references(self) -> dict[str, dict[str, TripleInt]]:
         triple_ints = {}
         for _ in range(self.reader.s32()):
             key = self.reader.string()
@@ -283,7 +301,7 @@ class ModItemParser:
 
             position = self._read_vector3()
 
-            qw = self.reader.f32()
+            qw = self.reader.f32() # w is really read first in this case
             qx = self.reader.f32()
             qy = self.reader.f32()
             qz = self.reader.f32()

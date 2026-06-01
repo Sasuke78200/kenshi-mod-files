@@ -5,19 +5,18 @@ from binary_reader import BinaryReader
 from mod_item import ModItemParser, ModItem
 
 
+@dataclass(slots=True)
+class MergeEntry:
+    filename    : str
+    item_1      : int  # version
+    item_2      : int  # version
+
 
 @dataclass(slots=True)
-class UnknownHeaderEntry:
-    name: str
-    value_a: int
-    value_b: int
-
-
-@dataclass(slots=True)
-class ReferencedModVersion:
-    name: str
-    version: int
-    extra: str
+class DeleteRequests:
+    filename    : str
+    version     : int
+    items       : list[str]
 
 
 @dataclass(slots=True)
@@ -31,8 +30,8 @@ class ModFileHeader:
     optional_end_offset : int = 0
     save_counter        : int | None = None
     last_merge_resolve  : int | None = None
-    unknown_entries     : list[UnknownHeaderEntry] = field(default_factory=list)
-    referenced_versions : list[ReferencedModVersion] = field(default_factory=list)
+    merge_entries       : list[MergeEntry] = field(default_factory=list)
+    delete_requests     : list[DeleteRequests] = field(default_factory=list)
     last_id             : int | None = None
     item_count          : int = 0
 
@@ -43,6 +42,10 @@ class ModFile:
     filename    : str
     header      : ModFileHeader
     items       : list[ModItem]
+
+    @classmethod
+    def load(cls, path: str | Path) -> "ModFile":
+        return ModFileParser(path).parse()
 
 
 class ModFileParser:
@@ -98,7 +101,7 @@ class ModFileParser:
         header.last_merge_resolve   = reader.u32()
 
         for _ in range(reader.u8()):
-            header.unknown_entries.append(UnknownHeaderEntry(
+            header.merge_entries.append(MergeEntry(
                 reader.string(), reader.u32(), reader.u32()
             ))
 
@@ -106,8 +109,8 @@ class ModFileParser:
             return
 
         for _ in range(reader.u8()):
-            header.referenced_versions.append(ReferencedModVersion(
-                reader.string(), reader.u32(), reader.string()
+            header.delete_requests.append(DeleteRequests(
+                reader.string(), reader.u32(), self._read_csv(reader)
             ))
 
     def _parse_items(self, reader: BinaryReader, header: ModFileHeader) -> list[ModItem]:
