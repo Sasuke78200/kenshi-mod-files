@@ -38,6 +38,9 @@ class ModFileHeader:
 
 @dataclass(slots=True)
 class ModFile:
+    """ Dataclass holding parsed .mod files for Kenshi game
+        The files are actually called GameDataContainer in the game binary
+    """
     path        : Path
     filename    : str
     header      : ModFileHeader
@@ -64,25 +67,26 @@ class ModFileParser:
 
         return ModFile(self.path, self.filename, header, items)
 
-    def _read_csv(self, reader) -> list[str]:
+    def _read_csv(self, reader: BinaryReader, separator: str = ',') -> list[str]:
         value = reader.string()
         if not value:
             return []
-        return [p for p in value.split(',') if p]
+        return [p for p in value.split(separator) if p]
 
     def _parse_header(self, reader: BinaryReader) -> ModFileHeader:
         header = ModFileHeader(reader.u32())
-        if header.file_version <= 15:
+        if header.file_version < 8 or header.file_version > 17:
             raise NotImplementedError(f'Unsupported file version: {header.file_version}')
 
         if header.file_version >= 17:
-            header.optional_end_offset = reader.u32()
+            header.optional_end_offset = reader.u32() + reader.tell()
 
-        header.version      = reader.u32()
-        header.author       = reader.string()
-        header.description  = reader.string()
-        header.dependencies = self._read_csv(reader)
-        header.referenced   = self._read_csv(reader)
+        if header.file_version > 15:
+            header.version      = reader.u32()
+            header.author       = reader.string()
+            header.description  = reader.string()
+            header.dependencies = self._read_csv(reader)
+            header.referenced   = self._read_csv(reader)
 
         self._read_optional_unknown_header(reader, header)
 
@@ -110,7 +114,7 @@ class ModFileParser:
 
         for _ in range(reader.u8()):
             header.delete_requests.append(DeleteRequests(
-                reader.string(), reader.u32(), self._read_csv(reader)
+                reader.string(), reader.u32(), self._read_csv(reader, ':')
             ))
 
     def _parse_items(self, reader: BinaryReader, header: ModFileHeader) -> list[ModItem]:

@@ -1,3 +1,5 @@
+import struct
+
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -144,6 +146,9 @@ class TripleInt:
     v1 : int = 0
     v2 : int = 0
 
+    def is_delete_marker(self) -> bool:
+        return self.v0 == 0x7FFFFFFF and self.v1 == 0x7FFFFFFF and self.v2 == 0x7FFFFFFF
+
 
 @dataclass(slots=True)
 class ModItemFields:
@@ -154,7 +159,7 @@ class ModItemFields:
     quaternions : dict[str, Quaternion]
     strings     : dict[str, str]
     filenames   : dict[str, str]
-    references     : dict[str, dict[str, TripleInt]]
+    references  : dict[str, dict[str, TripleInt]]
 
 @dataclass(slots=True)
 class ModObject:
@@ -162,12 +167,12 @@ class ModObject:
     reference           : str
     position            : Vector3
     rotation            : Quaternion
-    extra_references    : list
+    extra_references    : list[str]
 
 
 @dataclass(slots=True)
 class ModItem:
-    unknown_0000    : int           # forgotten construction set, will always save this value as 0 and dismiss its value at read
+    unknown_0000    : int | None   # forgotten construction set, will always save this value as 0 and dismiss its value at read
     item_type       : ItemType
     item_id         : int
     name            : str
@@ -200,7 +205,11 @@ class ModItemParser:
         self.filename = filename
 
     def parse(self) -> ModItem:
-        unknown_0000    = self.reader.s32()
+        if self.file_version >= 3:
+            unknown_0000    = self.reader.s32()
+        else:
+            unknown_0000    = None
+
         item_type       = ItemType(self.reader.s32())
         item_id         = self.reader.s32()
         name            = self.reader.string()
@@ -226,12 +235,17 @@ class ModItemParser:
             return self.reader.u32(), {}
 
         legacy_flags = {}
-        if self.file_version >= 11:
+        if self.file_version in (11, 13, 14):
             count = self.reader.s32()
             if count > 0 and self.filename != 'gamedata.base':
                 for _ in range(count):
                     flag_name = self.reader.string()
                     legacy_flags[flag_name] = self.reader.boolean()
+
+                # special case for file_version < 14 and item_type == ItemType.CONSTANTS
+                # the game logs a warning
+                # The mod named '' is out of date. Re-save it in the construction set.\n
+                # Modifications to the GLOBAL_CONSTANTS will be lost, you'll have to set them again, sorry!
 
         return 0, legacy_flags
 
@@ -278,7 +292,9 @@ class ModItemParser:
                     continue
                 ref_id = self.reader.string()
                 triple_int = None
-                if self.file_version >= 10:
+                if self.file_version >= 10:  # There is a discrepency between Kenshi.exe and FCS, the game does (>10) and FCS (>=10)
+                    # When the three values are set to INT_MAX (0x7FFFFFFF), it means delete the ref from game
+                    # otherwise add it
                     triple_int = TripleInt(self.reader.s32(), self.reader.s32(), self.reader.s32())
                 else:
                     triple_int = TripleInt(self.reader.s32())
@@ -289,7 +305,11 @@ class ModItemParser:
 
     def _read_object_identifier(self) -> str:
         if self.file_version >= 15:
-            return self.reader.string()
+            data = self.reader.string_raw()
+            if len(data) == 4: # That's an edge case for saves, it seems like the string aren't always utf-8 encoded
+                return f'{struct.unpack("<i", data)[0]}-{self.filename}'
+            return data.decode()
+
         return f'{self.reader.s32()}-{self.filename}'
 
     def _read_objects(self) -> list[ModObject]:
@@ -301,7 +321,7 @@ class ModItemParser:
 
             position = self._read_vector3()
 
-            qw = self.reader.f32() # w is really read first in this case
+            qw = self.reader.f32() # w first because it uses Ogre::Quaternion layout
             qx = self.reader.f32()
             qy = self.reader.f32()
             qz = self.reader.f32()
@@ -324,5 +344,8 @@ class ModItemParser:
 
     def _read_object_extra_reference(self) -> str:
         if self.file_version >= 15:
-            return self.reader.string()
+            data = self.reader.string_raw()
+            if len(data) == 4:  # That's an edge case for saves, it seems like the string aren't always utf-8 encoded
+                return f'{struct.unpack("<i", data)[0]}-{self.filename}'
+            return data.decode()
         return f'{self.reader.s32()}-{self.filename}-INGAME'
