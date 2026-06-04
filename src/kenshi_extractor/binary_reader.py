@@ -46,7 +46,11 @@ class BinaryReader:
 
     def string(self):
         string_len = self.u32()
-        return self.read_bytes(string_len).decode()
+        return self.read_bytes(string_len).decode('utf-8')
+
+    def string_raw(self):
+        string_len = self.u32()
+        return self.read_bytes(string_len)
 
     def read_bytes(self, n):
         return self.fd.read(n)
