@@ -17,7 +17,7 @@ from mod_file import ModFile
 
 class ModBrowserApp(App):
     TITLE = "Kenshi .mod Browser - By Toufik BEN JAA"
-    
+
     CSS = """
     ListView {
         width: 0.5fr;
@@ -55,12 +55,12 @@ class ModBrowserApp(App):
         _, index = event.item.id.split('_')
         self.query_one('#details-content', Static).update(self._build_item_details(int(index)))
 
-    def _build_metadata(self):
+    def _build_metadata(self) -> Static:
         metadata = Table.grid(padding=(0, 5))
         metadata.add_column(style='bold green')
         metadata.add_column()
         metadata.add_row('File Version',        str(self.mod_file.header.file_version))
-        metadata.add_row('Author',              self.mod_file.header.author)
+        metadata.add_row('Author',              str(self.mod_file.header.author))
         metadata.add_row('Version',             str(self.mod_file.header.version))
         metadata.add_row('Dependencies',        str(self.mod_file.header.dependencies))
         metadata.add_row('Referenced',          str(self.mod_file.header.referenced))
@@ -72,7 +72,7 @@ class ModBrowserApp(App):
         metadata.add_row('Items count',         str(self.mod_file.header.item_count))
 
         description_panel = Panel(
-            escape(self.mod_file.header.description),
+            escape(str(self.mod_file.header.description)),
             title='[green]Description[/green]',
             title_align='left',
             highlight=True,
@@ -81,7 +81,7 @@ class ModBrowserApp(App):
         metadata_panel = Panel(metadata_group, title="[bold][red]Metadata[/red][/bold]")
         return Static(metadata_panel, id='metadata-content')
 
-    def _build_items_list(self):
+    def _build_items_list(self) -> ListView:
         items = []
         for idx, item in enumerate(self.mod_file.items):
             items.append(
@@ -92,7 +92,7 @@ class ModBrowserApp(App):
             )
         return ListView(*items)
 
-    def _build_item_details(self, index):
+    def _build_item_details(self, index: int) -> Group:
         item = self.mod_file.items[index]
 
         save_counter, load_flags = item.unpack_flags()
@@ -107,7 +107,7 @@ class ModBrowserApp(App):
         details.add_row('Identifier',   item.identifier)
         details.add_row('Flags',        f'0x{item.flags:04x} (Save Counter: 0x{save_counter:04x} Item Load flags: {load_flags_str})')
         details.add_row('Legacy Flags', str(item.legacy_flags))
-        details.add_row('Objects', str(len(item.objects)))
+        details.add_row('Objects',      str(len(item.objects)))
 
         tables = []
         fields = {
@@ -118,7 +118,6 @@ class ModBrowserApp(App):
             'Quaternion': 'quaternions',
             'Strings': 'strings',
             'Filenames': 'filenames',
-            # 'References': 'references',
         }
 
         for name, field in fields.items():
@@ -159,7 +158,7 @@ class ModBrowserApp(App):
         )
 
 
-def cmd_view(path):
+def cmd_view(path: Path | str) -> None:
     mod_file = ModFile.load(path)
     ModBrowserApp(mod_file).run()
 
