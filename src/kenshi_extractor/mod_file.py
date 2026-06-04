@@ -2,7 +2,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from binary_reader import BinaryReader
-from mod_item import ModItemParser, ModItem
+from binary_writer import BinaryWriter
+from mod_item import ModItemParser, ModItem, ModItemWriter
 
 
 @dataclass(slots=True)
@@ -49,6 +50,81 @@ class ModFile:
     @classmethod
     def load(cls, path: str | Path) -> "ModFile":
         return ModFileParser(path).parse()
+
+    def save(self, path: str | Path) -> bool:
+        return ModFileWriter(self, path).write()
+
+class ModFileWriter:
+    def __init__(self, mod_file: ModFile, path: str | Path):
+        self.path       = Path(path)
+        self.mod_file   = mod_file
+
+    def write(self) -> bool:
+        if self.mod_file is None:
+            return False
+
+        with self.path.open('wb') as f:
+            writer = BinaryWriter(f)
+            self._write_header(writer)
+            self._write_items(writer)
+
+        return True
+
+    def _write_header(self, writer: BinaryWriter) -> None:
+        header = self.mod_file.header
+        writer.u32(header.file_version)
+
+        if header.file_version <= 15:
+            raise NotImplementedError(f'Unsupported file version: {header.file_version}')
+
+        offset_pos = 0
+        if header.file_version >= 17:
+            offset_pos = writer.tell()
+            writer.u32(0) # placeholder
+
+        writer.u32(header.version)
+        writer.string(header.author)
+        writer.string(header.description)
+        self._write_csv(writer, header.dependencies)
+        self._write_csv(writer, header.referenced)
+
+        self._write_optional_unknown_header(writer)
+        end_pos = writer.tell()
+
+        if header.file_version >= 17:
+            writer.seek(offset_pos, 0)
+            writer.u32(end_pos - (offset_pos + 4))
+            writer.seek(end_pos, 0)
+
+        writer.s32(header.last_id)
+        writer.s32(header.item_count)
+
+    def _write_optional_unknown_header(self, writer: BinaryWriter) -> None:
+        header = self.mod_file.header
+        if header.save_counter is None:
+            return
+
+        writer.u32(header.save_counter)
+        writer.u32(header.last_merge_resolve)
+
+        writer.u8(len(header.merge_entries))
+        for e in header.merge_entries:
+            writer.string(e.filename)
+            writer.u32(e.item_1)
+            writer.u32(e.item_2)
+
+        writer.u8(len(header.delete_requests))
+        for r in header.delete_requests:
+            writer.string(r.filename)
+            writer.u32(r.version)
+            self._write_csv(writer, r.items, ':')
+
+    def _write_items(self, writer: BinaryWriter) -> None:
+        item_writer = ModItemWriter(writer, self.mod_file.items, self.mod_file.header.file_version)
+        item_writer.write()
+
+    def _write_csv(self, writer: BinaryWriter, values: list, separator: str = ',') -> None:
+        writer.string(separator.join(values))
 
 
 class ModFileParser:

@@ -2,8 +2,11 @@ import struct
 
 from dataclasses import dataclass
 from enum import IntEnum
+from typing import Any
 
 from binary_reader import BinaryReader
+from binary_writer import BinaryWriter
+
 
 class ItemLoadFlags(IntEnum):
     MODIFIED = 1
@@ -349,3 +352,131 @@ class ModItemParser:
                 return f'{struct.unpack("<i", data)[0]}-{self.filename}'
             return data.decode()
         return f'{self.reader.s32()}-{self.filename}-INGAME'
+
+
+class ModItemWriter:
+    def __init__(self, writer: BinaryWriter, items: list[ModItem], file_version: int):
+        self.writer         = writer
+        self.items          = items
+        self.file_version   = file_version
+
+    def write(self) -> None:
+        for item in self.items:
+            self._write_item(item)
+
+    def _write_item(self, item: ModItem) -> None:
+        writer = self.writer
+        if self.file_version >= 3:
+            writer.s32(item.unknown_0000)
+        writer.s32(item.item_type.value)
+        writer.s32(item.item_id)
+        writer.string(item.name)
+        self._write_identifier(item)
+
+        self._write_flags(item)
+        self._write_fields(item)
+        self._write_objects(item)
+
+    def _write_identifier(self, item: ModItem) -> None:
+        if self.file_version < 7:
+            return
+        # file_version >= 7 only
+        self.writer.string(item.identifier)
+
+    def _write_flags(self, item: ModItem) -> None:
+        if self.file_version >= 15:
+            self.writer.u32(item.flags)
+            return
+
+        if self.file_version in (11, 13, 14):
+            self.writer.s32(len(item.legacy_flags))
+            for k, v in item.legacy_flags.items():
+                self.writer.string(k)
+                self.writer.boolean(v)
+            return
+        # no flags for version < 11
+
+    def _write_fields(self, item: ModItem) -> None:
+        fields = item.fields
+        self._write_keyed_fields(fields.bools, self.writer.boolean)
+        self._write_keyed_fields(fields.floats, self.writer.f32)
+        self._write_keyed_fields(fields.ints, self.writer.s32)
+
+        if self.file_version > 8:
+            self._write_keyed_fields(fields.vectors, self._write_vector3)
+            self._write_keyed_fields(fields.quaternions, self._write_quaternion)
+
+        self._write_keyed_fields(fields.strings, self.writer.string)
+        self._write_keyed_fields(fields.filenames, self.writer.string)
+        self._write_references(fields.references)
+
+    def _write_keyed_fields(self, fields: dict[str, Any], writer: callable) -> None:
+        self.writer.s32(len(fields))
+        for k, v in fields.items():
+            self.writer.string(k)
+            writer(v)
+
+    def _write_vector3(self, vector: Vector3) -> None:
+        self.writer.f32(vector.x)
+        self.writer.f32(vector.y)
+        self.writer.f32(vector.z)
+
+    def _write_quaternion(self, quaternion: Quaternion) -> None:
+        self.writer.f32(quaternion.x)
+        self.writer.f32(quaternion.y)
+        self.writer.f32(quaternion.z)
+        self.writer.f32(quaternion.w)
+
+    def _write_references(self, references: dict[str, dict[str, TripleInt]]) -> None:
+        self.writer.s32(len(references))
+
+        for section, refs in references.items():
+            self.writer.string(section)
+            self.writer.s32(len(refs))
+
+            for ref_id, triple_ints in refs.items():
+                if self.file_version < 8:
+                    self.writer.s64(0) # unused
+                    continue
+                self.writer.string(ref_id)
+                self.writer.s32(triple_ints.v0)
+                if self.file_version >= 10:
+                    self.writer.s32(triple_ints.v1)
+                    self.writer.s32(triple_ints.v2)
+
+    def _write_objects(self, item: ModItem) -> None:
+        self.writer.s32(len(item.objects))
+
+        for obj in item.objects:
+            self._write_object_identifier(obj)
+            if self.file_version >= 8:
+                self.writer.string(obj.reference)
+
+            self._write_vector3(obj.position)
+            self.writer.f32(obj.rotation.w)
+            self.writer.f32(obj.rotation.x)
+            self.writer.f32(obj.rotation.y)
+            self.writer.f32(obj.rotation.z)
+
+            if self.file_version > 6:
+                self.writer.s32(len(obj.extra_references))
+                for er in obj.extra_references:
+                    self._write_object_extra_reference(er)
+
+    def _write_object_identifier(self, obj: ModObject) -> None:
+        if self.file_version >= 15:
+            self.writer.string(obj.identifier)
+            return
+
+        # TODO: might be better to always store the int id to avoid parsing
+        int_id, _ = obj.identifier.split('-')
+        self.writer.s32(int(int_id))
+
+    def _write_object_extra_reference(self, reference: str) -> None:
+        if self.file_version >= 15:
+            self.writer.string(reference)
+            return
+
+        # TODO: might be better to always store the int id to avoid parsing
+        int_id, _, _ = reference.split('-')
+        self.writer.s32(int(int_id))
