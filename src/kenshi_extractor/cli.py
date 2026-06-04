@@ -12,6 +12,9 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
+import po_exporter
+import po_importer
+
 from mod_file import ModFile
 
 
@@ -162,6 +165,16 @@ def cmd_view(path: Path | str) -> None:
     mod_file = ModFile.load(path)
     ModBrowserApp(mod_file).run()
 
+def cmd_po_export(path: Path | str, output: Path | str) -> None:
+    mod_file = ModFile.load(path)
+    po = po_exporter.export_po(mod_file)
+    po.save(output)
+
+def cmd_po_import(path: Path | str, po_path: Path | str, output: Path | str) -> None:
+    mod_file = ModFile.load(path)
+    po_importer.import_po(mod_file, po_path)
+    mod_file.save(output)
+
 
 def main():
     parser = argparse.ArgumentParser(description='Tool to manipulate .mod files to Kenshi.')
@@ -174,6 +187,17 @@ def main():
 
     # build
 
+    # po-export
+    po_export = subparsers.add_parser('po-export', help='Export translatable fields to .PO file')
+    po_export.add_argument('file', type=Path, help='Path to the .mod file to export from')
+    po_export.add_argument('output', type=Path, help='Path to the output .PO file')
+
+    # po-import
+    po_import = subparsers.add_parser('po-import', help='Import translated .PO file into a .mod file')
+    po_import.add_argument('file', type=Path, help='Path to the source .mod file')
+    po_import.add_argument('input', type=Path, help='Path to the translated .PO file')
+    po_import.add_argument('output', type=Path, help='Path to save the translated .mod file')
+
     args = parser.parse_args()
 
     match args.command:
@@ -183,6 +207,10 @@ def main():
             pass
         case 'build':
             pass
+        case 'po-export':
+            cmd_po_export(args.file, args.output)
+        case 'po-import':
+            cmd_po_import(args.file, args.input, args.output)
 
 
 if __name__ == '__main__':
